@@ -1,0 +1,10 @@
+fastapi
+uvicorn
+python-multipart
+openai
+python-dateutil
+dateparser
+requests
+sqlalchemy
+psycopg2-binary
+pydantic
