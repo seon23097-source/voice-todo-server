@@ -7,6 +7,8 @@ import os
 from openai import OpenAI
 import dateparser
 import models, schemas, database
+from datetime import datetime
+import pytz # timezone 처리를 위해 추가
 
 # DB 테이블 생성
 models.Base.metadata.create_all(bind=database.engine)
@@ -31,51 +33,52 @@ client = OpenAI(
 @app.post("/analyze-voice", response_model=schemas.VoiceParseResult)
 async def analyze_voice(file: UploadFile = File(...)):
     temp_filename = f"temp_{file.filename}"
-    text = "" # [핵심] 변수 미리 생성 (UnboundLocalError 방지)
+    text = "" 
     
     try:
-        # 1. 파일 저장
         with open(temp_filename, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
             
-        # 파일 크기 확인 로그
-        file_size = os.path.getsize(temp_filename)
-        print(f"📁 수신된 파일: {file.filename}, 크기: {file_size} bytes")
-        
-        if file_size < 100:
-            print("⚠️ 파일이 너무 작음 (무음)")
-            text = "목소리가 들리지 않습니다."
-        else:
-            # 2. Whisper 호출
-            print("🤖 Whisper 분석 시작...")
-            with open(temp_filename, "rb") as audio_file:
-                transcript = client.audio.transcriptions.create(
-                    model="whisper-1", 
-                    file=audio_file,
-                    language="ko"
-                )
-            text = transcript.text
-            print(f"✅ 분석 성공: {text}")
+        # Whisper 호출
+        with open(temp_filename, "rb") as audio_file:
+            transcript = client.audio.transcriptions.create(
+                model="whisper-1", 
+                file=audio_file,
+                language="ko"
+            )
+        text = transcript.text
+        print(f"✅ 분석 성공: {text}")
 
     except Exception as e:
-        print(f"❌ 분석 중 에러 발생: {e}") 
-        # 에러가 나도 text에 값을 넣어줘서 서버가 안 죽게 함
+        print(f"❌ 분석 에러: {e}")
         text = "인식 실패"
         
     finally:
-        # 임시 파일 삭제
         if os.path.exists(temp_filename):
             os.remove(temp_filename)
             
-    # 3. 날짜 분석 (text가 정상일 때만)
+    # [핵심 수정] 한국 시간 기준으로 날짜 분석
     parsed_datetime = None
     if text and text not in ["인식 실패", "목소리가 들리지 않습니다."]:
-        parsed_datetime = dateparser.parse(text, languages=['ko'])
+        kst = pytz.timezone('Asia/Seoul')
+        now_kst = datetime.now(kst) # 현재 한국 시간
+        
+        # dateparser 설정 강화
+        parsed_datetime = dateparser.parse(
+            text, 
+            languages=['ko'],
+            settings={
+                'RELATIVE_BASE': now_kst.replace(tzinfo=None), # 기준점: 한국 시간
+                'PREFER_DATES_FROM': 'future', # "7시" 하면 미래의 7시로
+                'PREFER_DAY_OF_MONTH': 'first',
+                'RETURN_AS_TIMEZONE_AWARE': False 
+            }
+        )
     
     return {
         "original_text": text,
         "parsed_date": parsed_datetime,
-        "suggested_title": text
+        "suggested_title": text 
     }
 
 # --- [API 2] 할 일 저장 ---
