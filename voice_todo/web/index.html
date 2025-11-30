@@ -31,6 +31,15 @@
 
   <title>voice_todo</title>
   <link rel="manifest" href="manifest.json">
+
+  <!-- [추가] 터치 및 선택 방지 스타일 -->
+  <style>
+    body {
+      -webkit-touch-callout: none; /* iOS 꾹 누르기 메뉴 방지 */
+      -webkit-user-select: none;   /* 텍스트 선택 방지 */
+      user-select: none;
+    }
+  </style>
 </head>
 <body>
   <script src="flutter_bootstrap.js" async></script>

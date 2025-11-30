@@ -34,38 +34,49 @@ client = OpenAI(
 @app.post("/analyze-voice", response_model=schemas.VoiceParseResult)
 async def analyze_voice(file: UploadFile = File(...)):
     temp_filename = f"temp_{file.filename}"
-    parsed_datetime = dateparser.parse(
-    text, 
-    languages=['ko'],
-    settings={
-        'PREFER_DATES_FROM': 'future',  # "7시"라고 하면 무조건 미래(오늘 저녁 or 내일)로
-        'RELATIVE_BASE': datetime.now() # 기준 시간 명시
-    }
-)
-
+    text = "" # [중요] 변수 미리 생성 (에러 방지)
+    
     try:
-        # 파일 저장
+        # 1. 파일 저장
         with open(temp_filename, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
             
-        # Whisper로 텍스트 변환
-        with open(temp_filename, "rb") as audio_file:
-            transcript = client.audio.transcriptions.create(
-                model="whisper-1", 
-                file=audio_file,
-                language="ko" 
-            )
+        # [디버깅] 파일 크기 확인 (로그에 찍힘)
+        file_size = os.path.getsize(temp_filename)
+        print(f"📁 수신된 파일 크기: {file_size} bytes")
         
-        text = transcript.text # 딕셔너리가 아니라 객체로 반환됨
+        if file_size < 100: # 너무 작으면(소리가 없으면) 처리 안 함
+            text = "목소리가 들리지 않습니다."
+        else:
+            # 2. Whisper 호출
+            print("🤖 Whisper 분석 시작...")
+            with open(temp_filename, "rb") as audio_file:
+                transcript = client.audio.transcriptions.create(
+                    model="whisper-1", 
+                    file=audio_file,
+                    language="ko"
+                )
+            text = transcript.text
+            print(f"✅ 분석 완료: {text}")
+
+    except Exception as e:
+        print(f"❌ 에러 발생: {e}") # [중요] 로그에 진짜 에러 원인이 찍힘
+        text = "인식 실패"
         
-        # 날짜 추출
+    finally:
+        if os.path.exists(temp_filename):
+            os.remove(temp_filename)
+            
+    # 3. 날짜 분석 (text가 있어도 없어도 안전하게 실행)
+    parsed_datetime = None
+    if text and text not in ["인식 실패", "목소리가 들리지 않습니다."]:
         parsed_datetime = dateparser.parse(text, languages=['ko'])
-        
-        return {
-            "original_text": text,
-            "parsed_date": parsed_datetime, # 날짜 없으면 null
-            "suggested_title": text         # 일단 전체 텍스트를 제목으로
-        }
+    
+    return {
+        "original_text": text,
+        "parsed_date": parsed_datetime,
+        "suggested_title": text
+    }
         
     finally:
         if os.path.exists(temp_filename):

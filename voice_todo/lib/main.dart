@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'package:flutter/foundation.dart' show kIsWeb; // 웹 여부 확인용
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
@@ -36,30 +37,28 @@ class _TodoHomePageState extends State<TodoHomePage> {
   // --- 변수 설정 ---
   final AudioRecorder _audioRecorder = AudioRecorder();
   bool _isRecording = false;
-  bool _isLoading = false; // 서버 분석 중 로딩
+  bool _isLoading = false; 
   
-  // 서버 주소 (윈도우 시뮬레이터 기준)
-  // 안드로이드 에뮬레이터라면 'http://10.0.2.2:8000' 으로 바꿔야 함
+  // [중요] 여기에 본인의 CloudType 서버 주소를 넣으세요! (끝에 / 빼고)
   final String baseUrl = 'https://port-0-voice-todo-server-milo3zb6ebdebc3e.sel3.cloudtype.app'; 
 
   DateTime _focusedDay = DateTime.now();
   DateTime? _selectedDay;
-  List<dynamic> _tasks = []; // 할 일 목록
+  List<dynamic> _tasks = []; 
 
   @override
   void initState() {
     super.initState();
     _selectedDay = _focusedDay;
-    _fetchTasks(); // 앱 켜지면 목록 불러오기
+    _fetchTasks(); 
   }
 
-  // --- [1] 서버에서 목록 가져오기 (GET) ---
+  // --- [1] 서버에서 목록 가져오기 ---
   Future<void> _fetchTasks() async {
     try {
       final response = await http.get(Uri.parse('$baseUrl/tasks'));
       if (response.statusCode == 200) {
         setState(() {
-          // 한글 깨짐 방지 utf8.decode
           _tasks = jsonDecode(utf8.decode(response.bodyBytes));
         });
       }
@@ -68,8 +67,8 @@ class _TodoHomePageState extends State<TodoHomePage> {
     }
   }
 
-  // --- [2] 녹음 시작 ---
-    Future<void> _startRecording() async {
+  // --- [2] 녹음 시작 (웹/윈도우 호환) ---
+  Future<void> _startRecording() async {
     // 권한 체크
     var status = await Permission.microphone.request();
     if (status != PermissionStatus.granted) {
@@ -77,68 +76,72 @@ class _TodoHomePageState extends State<TodoHomePage> {
         return;
     }
 
-    final directory = await getApplicationDocumentsDirectory();
-    
-    // [변경 1] 확장자를 .wav로 변경 (호환성 최고)
-    final path = '${directory.path}/voice_temp.wav';
+    // 경로 설정 (웹에서는 경로가 필요 없음)
+    String? path;
+    if (!kIsWeb) {
+      final directory = await getApplicationDocumentsDirectory();
+      path = '${directory.path}/voice_temp.wav';
+    }
 
     if (await _audioRecorder.hasPermission()) {
-      // [변경 2] 인코더를 wav(pcm16bit)로 설정
-      const config = RecordConfig(
-        encoder: AudioEncoder.wav, 
+      // [중요] 웹일 때는 인코더 설정을 비워서 브라우저가 알아서 하게 둠
+      // 윈도우일 때는 WAV로 고정
+      final config = RecordConfig(
+        encoder: kIsWeb ? AudioEncoder.aacLc : AudioEncoder.wav, 
       );
       
-      await _audioRecorder.start(config, path: path);
+      // 웹에서는 path에 ''(빈문자열)을 넣어야 메모리에 저장됨
+      await _audioRecorder.start(config, path: path ?? '');
+      
       setState(() => _isRecording = true);
-      print("녹음 시작: $path"); // 경로가 어딘지 로그로 확인
-    }
-    
-    // _startRecording 함수 안쪽
-    if (await _audioRecorder.hasPermission()) {
-    // wav 설정 (윈도우 호환성 최고)
-    const config = RecordConfig(encoder: AudioEncoder.wav);
-    
-    await _audioRecorder.start(config, path: path);
-    setState(() => _isRecording = true);
-    
-    // ★ 이 로그를 확인하세요!
-    print("녹음 파일 저장 위치: $path"); 
+      print("녹음 시작됨");
     }
   }
 
-  // --- [3] 녹음 중지 및 분석 요청 (POST /analyze-voice) ---
+  // --- [3] 녹음 중지 및 분석 요청 ---
   Future<void> _stopAndAnalyze() async {
     final path = await _audioRecorder.stop();
     setState(() => _isRecording = false);
 
+    // 웹에서는 path가 null이거나 blob URL일 수 있음
     if (path == null) return;
 
-    setState(() => _isLoading = true); // 로딩 시작
+    setState(() => _isLoading = true);
 
     try {
-      // 파일 업로드
       var request = http.MultipartRequest('POST', Uri.parse('$baseUrl/analyze-voice'));
-      request.files.add(await http.MultipartFile.fromPath('file', path));
+      
+      if (kIsWeb) {
+        // 웹: 네트워크에서 파일 가져오듯 처리
+        var blob = await http.get(Uri.parse(path));
+        request.files.add(http.MultipartFile.fromBytes(
+          'file',
+          blob.bodyBytes,
+          filename: 'voice.webm', // 웹은 보통 webm이나 mp4
+        ));
+      } else {
+        // 윈도우/앱: 로컬 파일 경로 사용
+        request.files.add(await http.MultipartFile.fromPath('file', path));
+      }
 
       var streamedResponse = await request.send();
       var response = await http.Response.fromStream(streamedResponse);
 
       if (response.statusCode == 200) {
         var data = jsonDecode(utf8.decode(response.bodyBytes));
-        // 분석 성공하면 확인 팝업 띄우기
-        _showConfirmDialog(data);
+        if (mounted) _showConfirmDialog(data);
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("분석 실패")));
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("분석 실패")));
       }
     } catch (e) {
       print("오류: $e");
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("서버 연결 오류")));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("서버 연결 오류")));
     } finally {
-      setState(() => _isLoading = false); // 로딩 끝
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
-  // --- [4] 확인 팝업 및 최종 저장 (POST /tasks) ---
+  // --- [4] 확인 팝업 및 최종 저장 ---
   void _showConfirmDialog(Map<String, dynamic> data) {
     TextEditingController titleController = TextEditingController(text: data['suggested_title']);
     String? parsedDate = data['parsed_date'];
@@ -194,7 +197,6 @@ class _TodoHomePageState extends State<TodoHomePage> {
     );
   }
 
-  // 최종 저장 요청
   Future<void> _saveTask(String title, DateTime? date) async {
     try {
       await http.post(
@@ -206,7 +208,7 @@ class _TodoHomePageState extends State<TodoHomePage> {
           "description": "음성 입력됨"
         }),
       );
-      _fetchTasks(); // 목록 새로고침
+      _fetchTasks();
     } catch (e) {
       print("저장 실패: $e");
     }
@@ -219,7 +221,6 @@ class _TodoHomePageState extends State<TodoHomePage> {
       appBar: AppBar(title: const Text("Voice To-Do List")),
       body: Column(
         children: [
-          // 1. 달력
           TableCalendar(
             firstDay: DateTime.utc(2020, 10, 16),
             lastDay: DateTime.utc(2030, 3, 14),
@@ -231,10 +232,9 @@ class _TodoHomePageState extends State<TodoHomePage> {
                 _focusedDay = focusedDay;
               });
             },
-            calendarFormat: CalendarFormat.week, // 주간 달력으로 보기
+            calendarFormat: CalendarFormat.week,
           ),
           const Divider(),
-          // 2. 할 일 리스트
           Expanded(
             child: _isLoading 
               ? const Center(child: CircularProgressIndicator()) 
@@ -249,7 +249,7 @@ class _TodoHomePageState extends State<TodoHomePage> {
                       leading: Checkbox(
                         value: task['is_completed'],
                         onChanged: (bool? value) async {
-                          // 완료 상태 변경 API 호출 (숙제: PATCH 구현해보기)
+                           // 완료 기능 구현 필요
                         },
                       ),
                       title: Text(task['title']),
@@ -262,20 +262,17 @@ class _TodoHomePageState extends State<TodoHomePage> {
           ),
         ],
       ),
-      // 3. 음성 입력 버튼
-      floatingActionButton: GestureDetector(
-        onLongPress: _startRecording, // 꾹 누르면 녹음 시작
-        onLongPressUp: _stopAndAnalyze, // 떼면 분석 시작
-        child: FloatingActionButton(
-          backgroundColor: _isRecording ? Colors.red : Colors.blue,
-          onPressed: () {
-            // 짧게 누르면 안내 메시지
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text("버튼을 꾹 눌러서 말해보세요!")),
-            );
-          },
-          child: Icon(_isRecording ? Icons.mic : Icons.mic_none),
-        ),
+      // [수정됨] 아이폰 터치를 위해 LongPress 삭제하고 클릭(onPressed)으로 변경
+      floatingActionButton: FloatingActionButton(
+        backgroundColor: _isRecording ? Colors.red : Colors.blue,
+        onPressed: () {
+          if (_isRecording) {
+            _stopAndAnalyze();
+          } else {
+            _startRecording();
+          }
+        },
+        child: Icon(_isRecording ? Icons.stop : Icons.mic),
       ),
       floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
     );
