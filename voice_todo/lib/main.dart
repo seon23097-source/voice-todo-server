@@ -117,7 +117,7 @@ class _TodoHomePageState extends State<TodoHomePage> {
         request.files.add(http.MultipartFile.fromBytes(
           'file',
           blob.bodyBytes,
-          filename: 'voice.webm', // 웹은 보통 webm이나 mp4
+          filename: 'voice.mp4', // [변경] mp4로 변경 (아이폰 호환성 UP)
         ));
       } else {
         // 윈도우/앱: 로컬 파일 경로 사용
