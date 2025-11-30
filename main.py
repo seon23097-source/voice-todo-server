@@ -1,5 +1,6 @@
 # main.py
 from fastapi import FastAPI, UploadFile, File, Depends, HTTPException
+from fastapi.middleware.cors import CORSMiddleware # [추가] 이 줄 꼭 필요!
 from sqlalchemy.orm import Session
 from typing import List
 from openai import OpenAI
@@ -14,6 +15,15 @@ import models, schemas, database
 models.Base.metadata.create_all(bind=database.engine)
 
 app = FastAPI()
+
+# --- [여기부터 추가] CORS 허용 설정 ---
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # 모든 곳에서 접속 허용 (보안상 나중엔 주소 지정 권장)
+    allow_credentials=True,
+    allow_methods=["*"],  # 모든 통신 방식(GET, POST 등) 허용
+    allow_headers=["*"],  # 모든 헤더 허용
+)
 
 # OpenAI 키 설정 (환경변수 권장)
 client = OpenAI(

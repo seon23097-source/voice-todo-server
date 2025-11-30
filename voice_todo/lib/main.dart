@@ -40,7 +40,7 @@ class _TodoHomePageState extends State<TodoHomePage> {
   
   // 서버 주소 (윈도우 시뮬레이터 기준)
   // 안드로이드 에뮬레이터라면 'http://10.0.2.2:8000' 으로 바꿔야 함
-  final String baseUrl = 'http://127.0.0.1:8000'; 
+  final String baseUrl = 'https://port-0-voice-todo-server-milo3zb6ebdebc3e.sel3.cloudtype.app'; 
 
   DateTime _focusedDay = DateTime.now();
   DateTime? _selectedDay;
