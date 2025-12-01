@@ -128,3 +128,6 @@ def delete_task(task_id: int, db: Session = Depends(database.get_db)):
     db.delete(task)
     db.commit()
     return {"message": "Deleted"}
+
+# (맨 아래에 이런 거 하나 적으세요)
+# 강제 업데이트용 주석
